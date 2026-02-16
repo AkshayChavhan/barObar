@@ -35,3 +35,19 @@ export type PlanFeature =
 export function isPremiumFeature(feature: string): boolean {
   return (PLAN_FEATURES.PREMIUM as readonly string[]).includes(feature);
 }
+
+export function getPlanFeatures(
+  plan: 'BASIC' | 'PREMIUM'
+): readonly string[] {
+  if (plan === 'PREMIUM') {
+    return [...PLAN_FEATURES.BASIC, ...PLAN_FEATURES.PREMIUM];
+  }
+  return PLAN_FEATURES.BASIC;
+}
+
+export function hasFeature(
+  plan: 'BASIC' | 'PREMIUM',
+  feature: string
+): boolean {
+  return getPlanFeatures(plan).includes(feature);
+}
