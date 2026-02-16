@@ -1,0 +1,385 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== ENUMS ====================
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  MANAGER
+}
+
+enum PlanType {
+  BASIC
+  PREMIUM
+}
+
+enum SubStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+  EXPIRED
+}
+
+enum TableStatus {
+  AVAILABLE
+  OCCUPIED
+  RESERVED
+  NEEDS_CLEANING
+  OUT_OF_SERVICE
+}
+
+enum OrderSessionStatus {
+  PENDING_WAITER
+  CONFIRMED
+  EXPIRED
+  CANCELLED
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PREPARING
+  READY
+  SERVED
+  COMPLETED
+  CANCELLED
+}
+
+enum OrderItemStatus {
+  PENDING
+  PREPARING
+  READY
+  SERVED
+  CANCELLED
+}
+
+// ==================== PLATFORM MODELS ====================
+
+model User {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  name      String
+  email     String   @unique
+  password  String
+  role      UserRole
+  hotelId   String?  @db.ObjectId
+  hotel     Hotel?   @relation(fields: [hotelId], references: [id])
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orders Order[] @relation("OrderStaff")
+
+  @@index([hotelId])
+  @@map("users")
+}
+
+model Hotel {
+  id          String  @id @default(auto()) @map("_id") @db.ObjectId
+  name        String
+  slug        String  @unique
+  description String?
+  logo        String?
+  coverImage  String?
+  address     String?
+  phone       String?
+  email       String?
+  website     String?
+  currency    String  @default("INR")
+  timezone    String  @default("Asia/Kolkata")
+  isActive    Boolean @default(true)
+
+  operatingHours OperatingHours[]
+
+  users         User[]
+  subscription  Subscription?
+  menus         Menu[]
+  categories    Category[]
+  menuItems     MenuItem[]
+  menuAddOns    MenuAddOn[]
+  tables        Table[]
+  orderSessions OrderSession[]
+  orders        Order[]
+  feedback      Feedback[]
+  taxRates      TaxRate[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("hotels")
+}
+
+type OperatingHours {
+  dayOfWeek Int
+  openTime  String
+  closeTime String
+  isClosed  Boolean @default(false)
+}
+
+model Subscription {
+  id                   String   @id @default(auto()) @map("_id") @db.ObjectId
+  hotelId              String   @unique @db.ObjectId
+  hotel                Hotel    @relation(fields: [hotelId], references: [id])
+  plan                 PlanType @default(BASIC)
+  status               SubStatus @default(ACTIVE)
+  stripeCustomerId     String?
+  stripeSubscriptionId String?
+  currentPeriodEnd     DateTime?
+  trialEndsAt          DateTime?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@map("subscriptions")
+}
+
+// ==================== MENU SYSTEM ====================
+
+model Menu {
+  id          String @id @default(auto()) @map("_id") @db.ObjectId
+  hotelId     String @db.ObjectId
+  hotel       Hotel  @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  isActive    Boolean @default(true)
+  sortOrder   Int     @default(0)
+
+  availableFrom String?
+  availableTo   String?
+  availableDays Int[]
+
+  categories Category[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([hotelId, isActive])
+  @@map("menus")
+}
+
+model Category {
+  id          String @id @default(auto()) @map("_id") @db.ObjectId
+  hotelId     String @db.ObjectId
+  hotel       Hotel  @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  menuId      String @db.ObjectId
+  menu        Menu   @relation(fields: [menuId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  image       String?
+  sortOrder   Int     @default(0)
+  isActive    Boolean @default(true)
+
+  items MenuItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([menuId, isActive])
+  @@map("categories")
+}
+
+model MenuItem {
+  id          String  @id @default(auto()) @map("_id") @db.ObjectId
+  hotelId     String  @db.ObjectId
+  hotel       Hotel   @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  categoryId  String  @db.ObjectId
+  category    Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  price       Float
+  image       String?
+
+  isAvailable   Boolean @default(true)
+  isVeg         Boolean @default(false)
+  isSpecial     Boolean @default(false)
+  specialExpiry DateTime?
+
+  dietaryTags String[]
+  allergens   String[]
+  calories    Int?
+  spicyLevel  Int?
+
+  prepTimeMinutes Int?
+  sortOrder       Int @default(0)
+
+  orderItems OrderItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([categoryId, isAvailable])
+  @@index([hotelId, isSpecial])
+  @@map("menu_items")
+}
+
+model MenuAddOn {
+  id      String @id @default(auto()) @map("_id") @db.ObjectId
+  hotelId String @db.ObjectId
+  hotel   Hotel  @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  name    String
+  price   Float
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([hotelId, isActive])
+  @@map("menu_add_ons")
+}
+
+// ==================== TABLE SYSTEM ====================
+
+model Table {
+  id       String      @id @default(auto()) @map("_id") @db.ObjectId
+  hotelId  String      @db.ObjectId
+  hotel    Hotel       @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  number   Int
+  capacity Int         @default(4)
+  status   TableStatus @default(AVAILABLE)
+  section  String?
+
+  orders Order[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([hotelId, number])
+  @@map("tables")
+}
+
+// ==================== ORDER SYSTEM ====================
+
+model OrderSession {
+  id        String             @id @default(auto()) @map("_id") @db.ObjectId
+  hotelId   String             @db.ObjectId
+  hotel     Hotel              @relation(fields: [hotelId], references: [id])
+  status    OrderSessionStatus @default(PENDING_WAITER)
+  token     String             @unique @default(cuid())
+
+  items OrderSessionItem[]
+  order Order?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([hotelId, status])
+  @@map("order_sessions")
+}
+
+type OrderSessionItem {
+  menuItemId String
+  name       String
+  price      Float
+  quantity   Int
+  notes      String?
+}
+
+model Order {
+  id             String      @id @default(auto()) @map("_id") @db.ObjectId
+  orderNumber    Int
+  hotelId        String      @db.ObjectId
+  hotel          Hotel       @relation(fields: [hotelId], references: [id])
+  orderSessionId String      @unique @db.ObjectId
+  orderSession   OrderSession @relation(fields: [orderSessionId], references: [id])
+  tableId        String?     @db.ObjectId
+  table          Table?      @relation(fields: [tableId], references: [id])
+  tableNumber    Int?
+  status         OrderStatus @default(CONFIRMED)
+
+  staffId String? @db.ObjectId
+  staff   User?   @relation("OrderStaff", fields: [staffId], references: [id])
+
+  items OrderItem[]
+  notes String?
+
+  subtotal Float @default(0)
+  taxAmount Float @default(0)
+  total     Float @default(0)
+
+  estimatedReadyAt DateTime?
+  confirmedAt      DateTime?
+  prepStartedAt    DateTime?
+  readyAt          DateTime?
+  servedAt         DateTime?
+  completedAt      DateTime?
+  cancelledAt      DateTime?
+  cancelReason     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([hotelId, status])
+  @@index([hotelId, createdAt])
+  @@map("orders")
+}
+
+model OrderItem {
+  id         String          @id @default(auto()) @map("_id") @db.ObjectId
+  orderId    String          @db.ObjectId
+  order      Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItemId String          @db.ObjectId
+  menuItem   MenuItem        @relation(fields: [menuItemId], references: [id])
+  name       String
+  quantity   Int             @default(1)
+  unitPrice  Float
+  totalPrice Float
+  status     OrderItemStatus @default(PENDING)
+  notes      String?
+  addOns     OrderItemAddOn[]
+
+  prepStartedAt DateTime?
+  readyAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orderId])
+  @@map("order_items")
+}
+
+type OrderItemAddOn {
+  name  String
+  price Float
+}
+
+// ==================== FEEDBACK ====================
+
+model Feedback {
+  id             String @id @default(auto()) @map("_id") @db.ObjectId
+  hotelId        String @db.ObjectId
+  hotel          Hotel  @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  orderSessionId String?
+  foodRating     Int?
+  serviceRating  Int?
+  ambianceRating Int?
+  overallRating  Int
+  comment        String?
+
+  createdAt DateTime @default(now())
+
+  @@index([hotelId, createdAt])
+  @@map("feedback")
+}
+
+// ==================== TAX ====================
+
+model TaxRate {
+  id       String @id @default(auto()) @map("_id") @db.ObjectId
+  hotelId  String @db.ObjectId
+  hotel    Hotel  @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  name     String
+  rate     Float
+  isDefault Boolean @default(false)
+  isActive  Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([hotelId])
+  @@map("tax_rates")
+}
